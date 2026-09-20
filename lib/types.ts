@@ -57,6 +57,7 @@ export interface Trip {
   loading_gps_lat?: number;
   loading_gps_lng?: number;
   loading_gps_address?: string;
+  source_time?: string;
 
   // Phase 2: Offloading Stage
   end_odometer?: number;
@@ -64,6 +65,12 @@ export interface Trip {
   offloading_gps_lat?: number;
   offloading_gps_lng?: number;
   offloading_gps_address?: string;
+  dest_time?: string;
+
+  // New Telematics: Rest Time & Mileage
+  rest_time_minutes?: number;
+  fuel_consumed_litres?: number;
+  mileage?: number;
 
   // Legacy fallback fields
   photo_url?: string;

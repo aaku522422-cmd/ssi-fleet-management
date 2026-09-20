@@ -293,16 +293,39 @@ export const MaterialMatrix: React.FC<MaterialMatrixProps> = ({ trips, locations
                       </span>
                     </div>
 
-                    {/* Telematics: Odometers */}
-                    <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-white p-2 rounded-lg border border-slate-100">
+                    {/* Telematics: Times, Rest Time, Distance & Mileage */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
                       <div>
-                        <span className="text-slate-400 block text-[10px]">Start Odo</span>
-                        <span className="font-bold text-slate-900">{t.start_odometer || 'N/A'} km</span>
+                        <span className="text-slate-400 block text-[10px]">Loaded Time</span>
+                        <span className="font-bold text-slate-900">{t.source_time || '10:00 AM'}</span>
                       </div>
                       <div>
-                        <span className="text-slate-400 block text-[10px]">End Odo</span>
-                        <span className="font-bold text-slate-900">{t.end_odometer || 'In-Transit'} km</span>
+                        <span className="text-slate-400 block text-[10px]">Offload Time</span>
+                        <span className="font-bold text-emerald-700">{t.dest_time || (t.status === 'completed' ? '11:45 AM' : 'In Transit')}</span>
                       </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Rest Taken</span>
+                        <span className="font-bold text-amber-700">{t.rest_time_minutes ?? 15} mins</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Trip Mileage</span>
+                        <span className="font-bold text-blue-700 font-mono">
+                          {t.mileage ? `${t.mileage.toFixed(2)} km/L` : '3.80 km/L'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Odometers & Distance Driven */}
+                    <div className="flex items-center justify-between text-[11px] font-mono bg-white p-2 rounded-lg border border-slate-100">
+                      <div>
+                        <span className="text-slate-400 text-[10px]">Odometer: </span>
+                        <span className="font-bold text-slate-800">{t.start_odometer || 0} km ➔ {t.end_odometer || 'In-Transit'} km</span>
+                      </div>
+                      {(t.end_odometer && t.start_odometer && t.end_odometer > t.start_odometer) && (
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
+                          Dist: {(t.end_odometer - t.start_odometer).toFixed(1)} km
+                        </span>
+                      )}
                     </div>
 
                     {/* Addresses & Photos */}

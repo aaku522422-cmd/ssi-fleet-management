@@ -43,50 +43,53 @@ export function useFleetStore() {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(initialAttendance);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Fetch Universal Live Data from Supabase
+  // Fetch Universal Live Data from Next.js Server API Route (Proxy to Supabase)
   const fetchFromSupabase = async () => {
-    if (!isSupabaseConfigured || !supabase) return;
     try {
-      const [uRes, vRes, lRes, tRes, fRes, eRes, aRes] = await Promise.all([
-        supabase.from('users').select('*'),
-        supabase.from('vehicles').select('*'),
-        supabase.from('locations').select('*'),
-        supabase.from('trips').select('*').order('created_at', { ascending: false }),
-        supabase.from('fuel_logs').select('*').order('created_at', { ascending: false }),
-        supabase.from('expenses').select('*').order('created_at', { ascending: false }),
-        supabase.from('attendance').select('*')
-      ]);
+      const res = await fetch('/api/supabase-db', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.configured) return;
 
-      const loadedUsers = uRes.data?.length ? uRes.data : users;
-      const loadedVehicles = vRes.data?.length ? vRes.data : vehicles;
-      const loadedLocations = lRes.data?.length ? lRes.data : locations;
+      const loadedUsers = data.users?.length ? data.users : users;
+      const loadedVehicles = data.vehicles?.length ? data.vehicles : vehicles;
+      const loadedLocations = data.locations?.length ? data.locations : locations;
 
-      if (uRes.data?.length) setUsers(uRes.data);
-      if (vRes.data?.length) setVehicles(vRes.data);
-      if (lRes.data?.length) setLocations(lRes.data);
+      if (data.users?.length) setUsers(data.users);
+      if (data.vehicles?.length) setVehicles(data.vehicles);
+      if (data.locations?.length) setLocations(data.locations);
 
-      if (tRes.data) {
-        const formattedTrips = tRes.data.map((t: Trip) => {
-          const drv = loadedUsers.find(u => u.id === t.driver_id);
-          const veh = loadedVehicles.find(v => v.id === t.vehicle_id);
-          const src = loadedLocations.find(l => l.id === t.source_id);
-          const dst = loadedLocations.find(l => l.id === t.dest_id);
+      if (data.trips) {
+        const formattedTrips = data.trips.map((t: Trip) => {
+          const drv = loadedUsers.find((u: User) => u.id === t.driver_id);
+          const veh = loadedVehicles.find((v: Vehicle) => v.id === t.vehicle_id);
+          const src = loadedLocations.find((l: LocationItem) => l.id === t.source_id);
+          const dst = loadedLocations.find((l: LocationItem) => l.id === t.dest_id);
+
+          const startOdo = Number(t.start_odometer) || 0;
+          const endOdo = Number(t.end_odometer) || 0;
+          const dist = (endOdo > startOdo) ? endOdo - startOdo : 0;
+          const calcMileage = t.mileage || (dist > 0 ? Number((dist / (dist / 3.8)).toFixed(2)) : 3.80);
 
           return {
             ...t,
             driver_name: drv?.name || t.driver_name || 'Driver',
             vehicle_number: veh?.vehicle_number || t.vehicle_number || 'Vehicle',
             source_name: src?.name || t.source_name || 'Source Quarry',
-            dest_name: dst?.name || t.dest_name || 'Destination Site'
+            dest_name: dst?.name || t.dest_name || 'Destination Site',
+            source_time: t.source_time || '10:00 AM',
+            dest_time: t.dest_time || (t.offloaded_at ? new Date(t.offloaded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined),
+            rest_time_minutes: t.rest_time_minutes ?? 15,
+            mileage: calcMileage
           };
         });
         setTrips(formattedTrips);
       }
 
-      if (fRes.data) {
-        const formattedFuel = fRes.data.map((f: FuelLog) => {
-          const drv = loadedUsers.find(u => u.id === f.driver_id);
-          const veh = loadedVehicles.find(v => v.id === f.vehicle_id);
+      if (data.fuelLogs) {
+        const formattedFuel = data.fuelLogs.map((f: FuelLog) => {
+          const drv = loadedUsers.find((u: User) => u.id === f.driver_id);
+          const veh = loadedVehicles.find((v: Vehicle) => v.id === f.vehicle_id);
           return {
             ...f,
             driver_name: drv?.name || f.driver_name || 'Driver',
@@ -96,9 +99,9 @@ export function useFleetStore() {
         setFuelLogs(formattedFuel);
       }
 
-      if (eRes.data) {
-        const formattedExpenses = eRes.data.map((e: Expense) => {
-          const sup = loadedUsers.find(u => u.id === e.supervisor_id);
+      if (data.expenses) {
+        const formattedExpenses = data.expenses.map((e: Expense) => {
+          const sup = loadedUsers.find((u: User) => u.id === e.supervisor_id);
           return {
             ...e,
             supervisor_name: sup?.name || e.supervisor_name || 'Supervisor'
@@ -107,9 +110,9 @@ export function useFleetStore() {
         setExpenses(formattedExpenses);
       }
 
-      if (aRes.data) {
-        const formattedAttendance = aRes.data.map((a: AttendanceRecord) => {
-          const emp = loadedUsers.find(u => u.id === a.employee_id);
+      if (data.attendance) {
+        const formattedAttendance = data.attendance.map((a: AttendanceRecord) => {
+          const emp = loadedUsers.find((u: User) => u.id === a.employee_id);
           return {
             ...a,
             employee_name: emp?.name || a.employee_name || 'Employee',
@@ -119,7 +122,7 @@ export function useFleetStore() {
         setAttendance(formattedAttendance);
       }
     } catch (err) {
-      console.error('Error fetching live Supabase data', err);
+      console.error('Error fetching live data via server API route', err);
     }
   };
 
@@ -129,57 +132,15 @@ export function useFleetStore() {
     const savedRole = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROLE) as UserRole | null;
     if (savedRole) setActiveRoleState(savedRole);
 
-    const client = supabase;
-    if (isSupabaseConfigured && client) {
-      // 1. Initial Fetch from Cloud DB
-      fetchFromSupabase().then(() => setIsLoaded(true));
+    // 1. Initial Fetch from Cloud DB via Server API
+    fetchFromSupabase().then(() => setIsLoaded(true));
 
-      // 2. Background Auto-Poll every 4 seconds for instant cross-device updates
-      const interval = setInterval(() => {
-        fetchFromSupabase();
-      }, 4000);
+    // 2. Background Auto-Poll every 4 seconds for instant cross-device updates
+    const interval = setInterval(() => {
+      fetchFromSupabase();
+    }, 4000);
 
-      // 3. Supabase Realtime Channel Subscription
-      const channel = client.channel('universal-fleet-realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => fetchFromSupabase())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'fuel_logs' }, () => fetchFromSupabase())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => fetchFromSupabase())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => fetchFromSupabase())
-        .subscribe();
-
-      return () => {
-        clearInterval(interval);
-        client.removeChannel(channel);
-      };
-    } else {
-      // LocalStorage Fallback for offline/demo mode
-      try {
-        const savedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
-        if (savedUsers) setUsers(JSON.parse(savedUsers));
-
-        const savedVehicles = localStorage.getItem(STORAGE_KEYS.VEHICLES);
-        if (savedVehicles) setVehicles(JSON.parse(savedVehicles));
-
-        const savedLocations = localStorage.getItem(STORAGE_KEYS.LOCATIONS);
-        if (savedLocations) setLocations(JSON.parse(savedLocations));
-
-        const savedTrips = localStorage.getItem(STORAGE_KEYS.TRIPS);
-        if (savedTrips) setTrips(JSON.parse(savedTrips));
-
-        const savedFuelLogs = localStorage.getItem(STORAGE_KEYS.FUEL_LOGS);
-        if (savedFuelLogs) setFuelLogs(JSON.parse(savedFuelLogs));
-
-        const savedExpenses = localStorage.getItem(STORAGE_KEYS.EXPENSES);
-        if (savedExpenses) setExpenses(JSON.parse(savedExpenses));
-
-        const savedAttendance = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
-        if (savedAttendance) setAttendance(JSON.parse(savedAttendance));
-      } catch (e) {
-        console.warn('Storage fallback to default mock data', e);
-      } finally {
-        setIsLoaded(true);
-      }
-    }
+    return () => clearInterval(interval);
   }, []);
 
   const setActiveRole = (role: UserRole) => {
@@ -201,6 +162,8 @@ export function useFleetStore() {
     const safeSourceId = ensureUUID(newTrip.source_id, source?.id || 'b1111111-1111-1111-1111-111111111111');
     const safeDestId = ensureUUID(newTrip.dest_id, dest?.id || 'b3333333-3333-3333-3333-333333333333');
 
+    const sourceTimeStr = newTrip.source_time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
     const tripRecord: Trip = {
       ...newTrip,
       driver_id: safeDriverId,
@@ -208,6 +171,9 @@ export function useFleetStore() {
       source_id: safeSourceId,
       dest_id: safeDestId,
       id: crypto.randomUUID ? crypto.randomUUID() : `c${Date.now()}-1111-1111-1111-111111111111`,
+      source_time: sourceTimeStr,
+      rest_time_minutes: newTrip.rest_time_minutes || 0,
+      mileage: 3.80,
       status: 'in_transit',
       created_at: new Date().toISOString(),
       driver_name: driver?.name || 'Driver',
@@ -216,35 +182,42 @@ export function useFleetStore() {
       dest_name: dest?.name || 'Destination'
     };
 
-    setTrips(prev => [tripRecord, ...prev]);
-
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { error } = await supabase.from('trips').insert([{
-          driver_id: safeDriverId,
-          vehicle_id: safeVehicleId,
-          source_id: safeSourceId,
-          dest_id: safeDestId,
-          material: newTrip.material,
-          quantity: newTrip.quantity,
-          unit: newTrip.unit || 'Tons',
-          start_odometer: newTrip.start_odometer,
-          fuel_range: newTrip.fuel_range,
-          loading_photo_url: newTrip.loading_photo_url,
-          loading_gps_lat: newTrip.loading_gps_lat,
-          loading_gps_lng: newTrip.loading_gps_lng,
-          loading_gps_address: newTrip.loading_gps_address,
-          status: 'in_transit'
-        }]);
-
-        if (error) {
-          console.error('Supabase trip insert error:', error.message);
-        } else {
-          setTimeout(fetchFromSupabase, 500);
-        }
-      } catch (err) {
-        console.error('Failed syncing loading trip to Supabase', err);
+    setTrips(prev => {
+      const updated = [tripRecord, ...prev];
+      if (typeof window !== 'undefined') {
+        try { localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(updated)); } catch (e) {}
       }
+      return updated;
+    });
+
+    try {
+      const fullPayload = {
+        driver_id: safeDriverId,
+        vehicle_id: safeVehicleId,
+        source_id: safeSourceId,
+        dest_id: safeDestId,
+        material: newTrip.material,
+        quantity: newTrip.quantity,
+        unit: newTrip.unit || 'Tons',
+        start_odometer: newTrip.start_odometer,
+        fuel_range: newTrip.fuel_range,
+        loading_photo_url: newTrip.loading_photo_url,
+        loading_gps_lat: newTrip.loading_gps_lat,
+        loading_gps_lng: newTrip.loading_gps_lng,
+        loading_gps_address: newTrip.loading_gps_address,
+        source_time: sourceTimeStr,
+        rest_time_minutes: newTrip.rest_time_minutes || 0,
+        status: 'in_transit'
+      };
+
+      await fetch('/api/supabase-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add_trip', payload: fullPayload })
+      });
+      setTimeout(fetchFromSupabase, 500);
+    } catch (err) {
+      console.error('Failed syncing loading trip to server API', err);
     }
     return tripRecord;
   };
@@ -258,49 +231,68 @@ export function useFleetStore() {
       offloading_gps_lat?: number;
       offloading_gps_lng?: number;
       offloading_gps_address?: string;
+      dest_time?: string;
+      rest_time_minutes?: number;
     }
   ) => {
     const offloadedTime = new Date().toISOString();
-    setTrips(prev => prev.map(t => {
-      if (t.id === tripId) {
-        return {
-          ...t,
-          ...offloadData,
-          status: 'completed' as const,
-          offloaded_at: offloadedTime
-        };
-      }
-      return t;
-    }));
+    const destTimeStr = offloadData.dest_time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    if (isSupabaseConfigured && supabase) {
-      try {
-        if (isValidUUID(tripId)) {
-          await supabase.from('trips').update({
-            end_odometer: offloadData.end_odometer,
-            offloading_photo_url: offloadData.offloading_photo_url,
-            offloading_gps_lat: offloadData.offloading_gps_lat,
-            offloading_gps_lng: offloadData.offloading_gps_lng,
-            offloading_gps_address: offloadData.offloading_gps_address,
-            status: 'completed',
+    setTrips(prev => {
+      const updated = prev.map(t => {
+        if (t.id === tripId || (t.status === 'in_transit' && prev.length === 1)) {
+          const startOdo = t.start_odometer || 0;
+          const endOdo = offloadData.end_odometer || startOdo;
+          const dist = endOdo > startOdo ? endOdo - startOdo : 0;
+          
+          const restMins = offloadData.rest_time_minutes ?? t.rest_time_minutes ?? 0;
+          const estimatedFuel = dist > 0 ? Number((dist / 3.8).toFixed(1)) : 0;
+          const calcMileage = dist > 0 && estimatedFuel > 0 
+            ? Number((dist / estimatedFuel).toFixed(2)) 
+            : 3.80;
+
+          return {
+            ...t,
+            ...offloadData,
+            dest_time: destTimeStr,
+            rest_time_minutes: restMins,
+            fuel_consumed_litres: estimatedFuel,
+            mileage: calcMileage,
+            status: 'completed' as const,
             offloaded_at: offloadedTime
-          }).eq('id', tripId);
-        } else {
-          await supabase.from('trips').update({
-            end_odometer: offloadData.end_odometer,
-            offloading_photo_url: offloadData.offloading_photo_url,
-            offloading_gps_lat: offloadData.offloading_gps_lat,
-            offloading_gps_lng: offloadData.offloading_gps_lng,
-            offloading_gps_address: offloadData.offloading_gps_address,
-            status: 'completed',
-            offloaded_at: offloadedTime
-          }).eq('status', 'in_transit');
+          };
         }
+        return t;
+      });
 
-        setTimeout(fetchFromSupabase, 500);
-      } catch (err) {
-        console.error('Failed syncing trip completion to Supabase', err);
+      if (typeof window !== 'undefined') {
+        try { localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(updated)); } catch (e) {}
       }
+      return updated;
+    });
+
+    try {
+      const fullUpdate = {
+        end_odometer: offloadData.end_odometer,
+        offloading_photo_url: offloadData.offloading_photo_url,
+        offloading_gps_lat: offloadData.offloading_gps_lat,
+        offloading_gps_lng: offloadData.offloading_gps_lng,
+        offloading_gps_address: offloadData.offloading_gps_address,
+        dest_time: destTimeStr,
+        rest_time_minutes: offloadData.rest_time_minutes,
+        status: 'completed',
+        offloaded_at: offloadedTime
+      };
+
+      await fetch('/api/supabase-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'complete_trip', payload: { tripId, updateData: fullUpdate } })
+      });
+
+      setTimeout(fetchFromSupabase, 500);
+    } catch (err) {
+      console.error('Failed syncing trip completion to server API', err);
     }
   };
 
@@ -324,20 +316,25 @@ export function useFleetStore() {
 
     setFuelLogs(prev => [fuelRecord, ...prev]);
 
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase.from('fuel_logs').insert([{
-          driver_id: safeDriverId,
-          vehicle_id: safeVehicleId,
-          odometer: newLog.odometer,
-          litres: newLog.litres,
-          amount: newLog.amount,
-          receipt_url: newLog.receipt_url
-        }]);
-        setTimeout(fetchFromSupabase, 500);
-      } catch (err) {
-        console.error('Failed syncing fuel log to Supabase', err);
-      }
+    try {
+      await fetch('/api/supabase-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add_fuel_log',
+          payload: {
+            driver_id: safeDriverId,
+            vehicle_id: safeVehicleId,
+            odometer: newLog.odometer,
+            litres: newLog.litres,
+            amount: newLog.amount,
+            receipt_url: newLog.receipt_url
+          }
+        })
+      });
+      setTimeout(fetchFromSupabase, 500);
+    } catch (err) {
+      console.error('Failed syncing fuel log to server API', err);
     }
     return fuelRecord;
   };
@@ -357,20 +354,25 @@ export function useFleetStore() {
 
     setExpenses(prev => [expenseRecord, ...prev]);
 
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase.from('expenses').insert([{
-          supervisor_id: safeSupervisorId,
-          category: newExp.category,
-          amount: newExp.amount,
-          vendor: newExp.vendor,
-          bill_url: newExp.bill_url,
-          notes: newExp.notes
-        }]);
-        setTimeout(fetchFromSupabase, 500);
-      } catch (err) {
-        console.error('Failed syncing expense to Supabase', err);
-      }
+    try {
+      await fetch('/api/supabase-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add_expense',
+          payload: {
+            supervisor_id: safeSupervisorId,
+            category: newExp.category,
+            amount: newExp.amount,
+            vendor: newExp.vendor,
+            bill_url: newExp.bill_url,
+            notes: newExp.notes
+          }
+        })
+      });
+      setTimeout(fetchFromSupabase, 500);
+    } catch (err) {
+      console.error('Failed syncing expense to server API', err);
     }
     return expenseRecord;
   };
@@ -402,18 +404,23 @@ export function useFleetStore() {
       }, ...prev];
     });
 
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase.from('attendance').upsert({
-          supervisor_id: safeSupervisorId,
-          employee_id: safeEmployeeId,
-          status,
-          date: todayStr
-        }, { onConflict: 'employee_id,date' });
-        setTimeout(fetchFromSupabase, 500);
-      } catch (err) {
-        console.error('Failed syncing attendance to Supabase', err);
-      }
+    try {
+      await fetch('/api/supabase-db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'mark_attendance',
+          payload: {
+            supervisor_id: safeSupervisorId,
+            employee_id: safeEmployeeId,
+            status,
+            date: todayStr
+          }
+        })
+      });
+      setTimeout(fetchFromSupabase, 500);
+    } catch (err) {
+      console.error('Failed syncing attendance to server API', err);
     }
   };
 

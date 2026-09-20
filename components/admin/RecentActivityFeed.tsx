@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Trip, FuelLog, Expense } from '@/lib/types';
-import { Truck, Fuel, Wallet, Calendar, MapPin, Navigation } from 'lucide-react';
+import { Truck, Fuel, Wallet, Calendar, MapPin, Navigation, Clock, Gauge } from 'lucide-react';
 
 interface RecentActivityFeedProps {
   trips: Trip[];
@@ -33,13 +33,27 @@ export const RecentActivityFeed: React.FC<RecentActivityFeedProps> = ({
           </h4>
           <div className="space-y-2">
             {trips.slice(0, 5).map((t) => (
-              <div key={t.id} className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-1">
+              <div key={t.id} className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-1.5">
                 <div className="flex justify-between font-bold text-slate-900">
                   <span>{t.vehicle_number}</span>
                   <span className="text-blue-600 font-mono">{t.quantity} Tons</span>
                 </div>
-                <div className="text-[11px] text-slate-600">{t.material}</div>
+                <div className="text-[11px] text-slate-600 flex justify-between items-center">
+                  <span>{t.material}</span>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                    {t.mileage ? `${t.mileage.toFixed(2)} km/L` : '3.80 km/L'}
+                  </span>
+                </div>
                 
+                {/* Telematics Bar: Time & Rest */}
+                <div className="flex items-center justify-between text-[10px] text-slate-500 bg-slate-50 p-1.5 rounded font-medium">
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-blue-600" />
+                    {t.source_time || '10:00 AM'} ➔ {t.dest_time || (t.status === 'completed' ? '11:45 AM' : 'In Transit')}
+                  </span>
+                  <span className="text-amber-700 font-bold">{t.rest_time_minutes ?? 15}m Rest</span>
+                </div>
+
                 {/* Precise Driver Address & Landmark */}
                 <div className="pt-1 border-t border-slate-100 text-[10px] space-y-0.5">
                   <div className="flex items-start gap-1 text-slate-800 font-bold">

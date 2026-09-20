@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS locations (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
--- 5. TRIPS TABLE (Enhanced for 2-Phase Loading & Offloading Lifecycle)
+-- 5. TRIPS TABLE (Enhanced for 2-Phase Lifecycle & Telematics)
 CREATE TABLE IF NOT EXISTS trips (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     driver_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -58,12 +58,20 @@ CREATE TABLE IF NOT EXISTS trips (
     loading_photo_url TEXT,
     loading_gps_lat NUMERIC(10, 6),
     loading_gps_lng NUMERIC(10, 6),
+    loading_gps_address TEXT,
+    source_time VARCHAR(50),
 
     -- Phase 2: Offloading Stage
     end_odometer NUMERIC(10, 1),
     offloading_photo_url TEXT,
     offloading_gps_lat NUMERIC(10, 6),
     offloading_gps_lng NUMERIC(10, 6),
+    offloading_gps_address TEXT,
+    dest_time VARCHAR(50),
+
+    -- Telematics: Rest Time & Mileage
+    rest_time_minutes NUMERIC(10, 1) DEFAULT 0,
+    mileage NUMERIC(10, 2),
 
     -- Legacy fallback fields
     gps_lat NUMERIC(10, 6),
@@ -74,6 +82,14 @@ CREATE TABLE IF NOT EXISTS trips (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     offloaded_at TIMESTAMP WITH TIME ZONE
 );
+
+-- Idempotent Column Migrations
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS loading_gps_address TEXT;
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS offloading_gps_address TEXT;
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS source_time VARCHAR(50);
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS dest_time VARCHAR(50);
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS rest_time_minutes NUMERIC(10, 1) DEFAULT 0;
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS mileage NUMERIC(10, 2);
 
 -- 6. FUEL LOGS TABLE
 CREATE TABLE IF NOT EXISTS fuel_logs (

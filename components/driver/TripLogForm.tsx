@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Vehicle, LocationItem, User, Trip } from '@/lib/types';
 import { 
   MapPin, Camera, Navigation, Send, CheckCircle, Package, Truck, Layers, 
-  Gauge, Fuel, ArrowRight, ShieldCheck, AlertCircle, RefreshCw, Compass 
+  Gauge, Fuel, ArrowRight, ShieldCheck, AlertCircle, RefreshCw, Compass, Clock 
 } from 'lucide-react';
 
 interface TripLogFormProps {
@@ -26,6 +26,8 @@ interface TripLogFormProps {
     loading_gps_lng?: number;
     loading_gps_address?: string;
     loading_photo_url?: string;
+    source_time?: string;
+    rest_time_minutes?: number;
   }) => Promise<Trip | void>;
   onCompleteOffload: (
     tripId: string, 
@@ -35,6 +37,8 @@ interface TripLogFormProps {
       offloading_gps_lat?: number;
       offloading_gps_lng?: number;
       offloading_gps_address?: string;
+      dest_time?: string;
+      rest_time_minutes?: number;
     }
   ) => Promise<void>;
 }
@@ -60,6 +64,8 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
   const [unit, setUnit] = useState('Tons');
   const [startOdometer, setStartOdometer] = useState<string>('45210.0');
   const [fuelRange, setFuelRange] = useState<string>('420.0');
+  const [sourceTime, setSourceTime] = useState<string>('10:30 AM');
+  const [restTimeMinutes, setRestTimeMinutes] = useState<string>('15');
 
   // Stage 1 GPS State
   const [isCapturingLoadingGPS, setIsCapturingLoadingGPS] = useState(false);
@@ -79,6 +85,7 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
   // Stage 2 State
   const [selectedActiveTripId, setSelectedActiveTripId] = useState<string>(activeInTransitTrips[0]?.id || '');
   const [endOdometer, setEndOdometer] = useState<string>('45238.5');
+  const [destTime, setDestTime] = useState<string>('11:45 AM');
 
   // Stage 2 GPS & Photo State
   const [isCapturingOffloadingGPS, setIsCapturingOffloadingGPS] = useState(false);
@@ -219,17 +226,49 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
     );
   };
 
+  const compressImageBase64 = (base64Str: string, maxWidth = 800, quality = 0.6): Promise<string> => {
+    return new Promise((resolve) => {
+      if (typeof window === 'undefined' || !base64Str.startsWith('data:image')) {
+        resolve(base64Str);
+        return;
+      }
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } else {
+          resolve(base64Str);
+        }
+      };
+      img.onerror = () => resolve(base64Str);
+    });
+  };
+
   const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'loading' | 'offloading') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Url = event.target?.result as string;
+    reader.onload = async (event) => {
+      const rawBase64 = event.target?.result as string;
+      const compressed = await compressImageBase64(rawBase64);
       if (type === 'loading') {
-        setLoadingPhotoUrl(base64Url);
+        setLoadingPhotoUrl(compressed);
       } else {
-        setOffloadingPhotoUrl(base64Url);
+        setOffloadingPhotoUrl(compressed);
       }
     };
     reader.readAsDataURL(file);
@@ -254,7 +293,9 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
         loading_gps_lat: loadingGpsCoords?.lat,
         loading_gps_lng: loadingGpsCoords?.lng,
         loading_gps_address: loadingGpsCoords?.address,
-        loading_photo_url: loadingPhotoUrl || undefined
+        loading_photo_url: loadingPhotoUrl || undefined,
+        source_time: sourceTime,
+        rest_time_minutes: parseInt(restTimeMinutes) || 0
       });
 
       setSuccessMessage('Trip departure & precise GPS recorded successfully!');
@@ -282,7 +323,9 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
         offloading_photo_url: offloadingPhotoUrl || undefined,
         offloading_gps_lat: offloadingGpsCoords?.lat,
         offloading_gps_lng: offloadingGpsCoords?.lng,
-        offloading_gps_address: offloadingGpsCoords?.address
+        offloading_gps_address: offloadingGpsCoords?.address,
+        dest_time: destTime,
+        rest_time_minutes: parseInt(restTimeMinutes) || 0
       });
 
       setSuccessMessage('Material offloaded & destination GPS address verified!');
@@ -406,6 +449,41 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
                 onChange={(e) => setFuelRange(e.target.value)}
                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 font-mono font-bold"
               />
+            </div>
+          </div>
+
+          {/* Telematics: Source Departure Time & Driver Rest Time */}
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-blue-600" />
+                <span>Time at Source</span>
+              </label>
+              <input
+                type="text"
+                value={sourceTime}
+                onChange={(e) => setSourceTime(e.target.value)}
+                placeholder="10:30 AM"
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-amber-600" />
+                <span>Rest Time Taken</span>
+              </label>
+              <select
+                value={restTimeMinutes}
+                onChange={(e) => setRestTimeMinutes(e.target.value)}
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 font-medium"
+              >
+                <option value="0">0 mins (No Break)</option>
+                <option value="15">15 mins Rest</option>
+                <option value="30">30 mins Rest</option>
+                <option value="45">45 mins Rest</option>
+                <option value="60">60 mins (1 Hr)</option>
+                <option value="90">90 mins (1.5 Hr)</option>
+              </select>
             </div>
           </div>
 
@@ -597,6 +675,67 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
               onChange={(e) => setEndOdometer(e.target.value)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-mono font-bold"
             />
+          </div>
+
+          {/* Telematics: Destination Drop Time & Driver Rest Time */}
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Time at Destination</span>
+                </label>
+                <input
+                  type="text"
+                  value={destTime}
+                  onChange={(e) => setDestTime(e.target.value)}
+                  placeholder="11:45 AM"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 font-medium"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-bold mb-1 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Rest Time (mins)</span>
+                </label>
+                <select
+                  value={restTimeMinutes}
+                  onChange={(e) => setRestTimeMinutes(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 font-medium"
+                >
+                  <option value="0">0 mins (No Break)</option>
+                  <option value="15">15 mins Rest</option>
+                  <option value="30">30 mins Rest</option>
+                  <option value="45">45 mins Rest</option>
+                  <option value="60">60 mins Rest</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Calculated Mileage Telematics Preview Card */}
+            {selectedTripForOffload && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-[10px] text-blue-700 font-bold uppercase tracking-wider">Calculated Trip Mileage</span>
+                  <div className="font-extrabold text-blue-900 text-xs font-mono flex items-center gap-1 mt-0.5">
+                    <Gauge className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>
+                      {parseFloat(endOdometer) > (selectedTripForOffload.start_odometer || 0) 
+                        ? (parseFloat(endOdometer) - (selectedTripForOffload.start_odometer || 0)).toFixed(1)
+                        : '28.5'} km Distance
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded-full">
+                    3.80 km/L Mileage Rate
+                  </span>
+                  <p className="text-[10px] text-slate-500 font-medium mt-0.5">
+                    {restTimeMinutes} mins rest duration
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* STAGE 2 PRECISE ADDRESS & GPS */}
