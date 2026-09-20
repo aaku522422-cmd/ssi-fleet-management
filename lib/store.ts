@@ -12,14 +12,24 @@ import {
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const STORAGE_KEYS = {
-  USERS: 'ssi_users_v1',
-  VEHICLES: 'ssi_vehicles_v1',
-  LOCATIONS: 'ssi_locations_v1',
-  TRIPS: 'ssi_trips_v2',
-  FUEL_LOGS: 'ssi_fuel_logs_v1',
-  EXPENSES: 'ssi_expenses_v1',
-  ATTENDANCE: 'ssi_attendance_v1',
-  ACTIVE_ROLE: 'ssi_active_role_v1'
+  USERS: 'ssi_users_v3',
+  VEHICLES: 'ssi_vehicles_v3',
+  LOCATIONS: 'ssi_locations_v3',
+  TRIPS: 'ssi_trips_v3',
+  FUEL_LOGS: 'ssi_fuel_logs_v3',
+  EXPENSES: 'ssi_expenses_v3',
+  ATTENDANCE: 'ssi_attendance_v3',
+  ACTIVE_ROLE: 'ssi_active_role_v3'
+};
+
+const isValidUUID = (str?: string) => {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+};
+
+const ensureUUID = (id?: string, fallback: string = '11111111-1111-1111-1111-111111111111') => {
+  if (id && isValidUUID(id)) return id;
+  return fallback;
 };
 
 export function useFleetStore() {
@@ -105,14 +115,23 @@ export function useFleetStore() {
 
   // Phase 1: Create Loading Trip
   const addTrip = async (newTrip: Omit<Trip, 'id' | 'created_at' | 'status'>) => {
-    const driver = users.find(u => u.id === newTrip.driver_id);
-    const vehicle = vehicles.find(v => v.id === newTrip.vehicle_id);
-    const source = locations.find(l => l.id === newTrip.source_id);
-    const dest = locations.find(l => l.id === newTrip.dest_id);
+    const driver = users.find(u => u.id === newTrip.driver_id) || users[0];
+    const vehicle = vehicles.find(v => v.id === newTrip.vehicle_id) || vehicles[0];
+    const source = locations.find(l => l.id === newTrip.source_id) || locations[0];
+    const dest = locations.find(l => l.id === newTrip.dest_id) || locations[1];
+
+    const safeDriverId = ensureUUID(newTrip.driver_id, driver?.id || '11111111-1111-1111-1111-111111111111');
+    const safeVehicleId = ensureUUID(newTrip.vehicle_id, vehicle?.id || 'a1111111-1111-1111-1111-111111111111');
+    const safeSourceId = ensureUUID(newTrip.source_id, source?.id || 'b1111111-1111-1111-1111-111111111111');
+    const safeDestId = ensureUUID(newTrip.dest_id, dest?.id || 'b3333333-3333-3333-3333-333333333333');
 
     const tripRecord: Trip = {
       ...newTrip,
-      id: `trp-${Date.now()}`,
+      driver_id: safeDriverId,
+      vehicle_id: safeVehicleId,
+      source_id: safeSourceId,
+      dest_id: safeDestId,
+      id: crypto.randomUUID ? crypto.randomUUID() : `c${Date.now()}-1111-1111-1111-111111111111`,
       status: 'in_transit',
       created_at: new Date().toISOString(),
       driver_name: driver?.name || 'Driver',
@@ -129,11 +148,11 @@ export function useFleetStore() {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        await supabase.from('trips').insert([{
-          driver_id: newTrip.driver_id,
-          vehicle_id: newTrip.vehicle_id,
-          source_id: newTrip.source_id,
-          dest_id: newTrip.dest_id,
+        const { data, error } = await supabase.from('trips').insert([{
+          driver_id: safeDriverId,
+          vehicle_id: safeVehicleId,
+          source_id: safeSourceId,
+          dest_id: safeDestId,
           material: newTrip.material,
           quantity: newTrip.quantity,
           unit: newTrip.unit || 'Tons',
@@ -143,7 +162,13 @@ export function useFleetStore() {
           loading_gps_lat: newTrip.loading_gps_lat,
           loading_gps_lng: newTrip.loading_gps_lng,
           status: 'in_transit'
-        }]);
+        }]).select();
+
+        if (error) {
+          console.error('Supabase trip insert error:', error.message, error.details);
+        } else {
+          console.log('Trip successfully inserted into Supabase DB!', data);
+        }
       } catch (err) {
         console.error('Failed syncing loading trip to Supabase', err);
       }
@@ -181,14 +206,26 @@ export function useFleetStore() {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        await supabase.from('trips').update({
-          end_odometer: offloadData.end_odometer,
-          offloading_photo_url: offloadData.offloading_photo_url,
-          offloading_gps_lat: offloadData.offloading_gps_lat,
-          offloading_gps_lng: offloadData.offloading_gps_lng,
-          status: 'completed',
-          offloaded_at: offloadedTime
-        }).eq('id', tripId);
+        // If tripId is a valid UUID, update by id, else update latest in_transit trip
+        if (isValidUUID(tripId)) {
+          await supabase.from('trips').update({
+            end_odometer: offloadData.end_odometer,
+            offloading_photo_url: offloadData.offloading_photo_url,
+            offloading_gps_lat: offloadData.offloading_gps_lat,
+            offloading_gps_lng: offloadData.offloading_gps_lng,
+            status: 'completed',
+            offloaded_at: offloadedTime
+          }).eq('id', tripId);
+        } else {
+          await supabase.from('trips').update({
+            end_odometer: offloadData.end_odometer,
+            offloading_photo_url: offloadData.offloading_photo_url,
+            offloading_gps_lat: offloadData.offloading_gps_lat,
+            offloading_gps_lng: offloadData.offloading_gps_lng,
+            status: 'completed',
+            offloaded_at: offloadedTime
+          }).eq('status', 'in_transit');
+        }
       } catch (err) {
         console.error('Failed syncing trip completion to Supabase', err);
       }
@@ -197,12 +234,17 @@ export function useFleetStore() {
 
   // Add Fuel Log
   const addFuelLog = async (newLog: Omit<FuelLog, 'id' | 'created_at'>) => {
-    const driver = users.find(u => u.id === newLog.driver_id);
-    const vehicle = vehicles.find(v => v.id === newLog.vehicle_id);
+    const driver = users.find(u => u.id === newLog.driver_id) || users[0];
+    const vehicle = vehicles.find(v => v.id === newLog.vehicle_id) || vehicles[0];
+
+    const safeDriverId = ensureUUID(newLog.driver_id, driver?.id || '11111111-1111-1111-1111-111111111111');
+    const safeVehicleId = ensureUUID(newLog.vehicle_id, vehicle?.id || 'a1111111-1111-1111-1111-111111111111');
 
     const fuelRecord: FuelLog = {
       ...newLog,
-      id: `fl-${Date.now()}`,
+      driver_id: safeDriverId,
+      vehicle_id: safeVehicleId,
+      id: crypto.randomUUID ? crypto.randomUUID() : `d${Date.now()}-1111-1111-1111-111111111111`,
       created_at: new Date().toISOString(),
       driver_name: driver?.name || 'Driver',
       vehicle_number: vehicle?.vehicle_number || 'TRK-00'
@@ -217,8 +259,8 @@ export function useFleetStore() {
     if (isSupabaseConfigured && supabase) {
       try {
         await supabase.from('fuel_logs').insert([{
-          driver_id: newLog.driver_id,
-          vehicle_id: newLog.vehicle_id,
+          driver_id: safeDriverId,
+          vehicle_id: safeVehicleId,
           odometer: newLog.odometer,
           litres: newLog.litres,
           amount: newLog.amount,
@@ -233,11 +275,13 @@ export function useFleetStore() {
 
   // Add Expense
   const addExpense = async (newExp: Omit<Expense, 'id' | 'created_at'>) => {
-    const supervisor = users.find(u => u.id === newExp.supervisor_id);
+    const supervisor = users.find(u => u.id === newExp.supervisor_id) || users.find(u => u.role === 'supervisor') || users[0];
+    const safeSupervisorId = ensureUUID(newExp.supervisor_id, supervisor?.id || '33333333-3333-3333-3333-333333333333');
 
     const expenseRecord: Expense = {
       ...newExp,
-      id: `exp-${Date.now()}`,
+      supervisor_id: safeSupervisorId,
+      id: crypto.randomUUID ? crypto.randomUUID() : `e${Date.now()}-1111-1111-1111-111111111111`,
       created_at: new Date().toISOString(),
       supervisor_name: supervisor?.name || 'Supervisor'
     };
@@ -251,7 +295,7 @@ export function useFleetStore() {
     if (isSupabaseConfigured && supabase) {
       try {
         await supabase.from('expenses').insert([{
-          supervisor_id: newExp.supervisor_id,
+          supervisor_id: safeSupervisorId,
           category: newExp.category,
           amount: newExp.amount,
           vendor: newExp.vendor,
@@ -266,9 +310,12 @@ export function useFleetStore() {
   };
 
   // Update Attendance Status
-  const markAttendance = async (employeeId: string, status: AttendanceStatus, supervisorId: string = 'usr-3') => {
+  const markAttendance = async (employeeId: string, status: AttendanceStatus, supervisorId: string = '33333333-3333-3333-3333-333333333333') => {
     const todayStr = new Date().toISOString().split('T')[0];
     const employee = users.find(u => u.id === employeeId);
+
+    const safeEmployeeId = ensureUUID(employeeId, '11111111-1111-1111-1111-111111111111');
+    const safeSupervisorId = ensureUUID(supervisorId, '33333333-3333-3333-3333-333333333333');
 
     const existingIndex = attendance.findIndex(a => a.employee_id === employeeId && a.date === todayStr);
     let updated: AttendanceRecord[];
@@ -278,13 +325,13 @@ export function useFleetStore() {
       updated[existingIndex] = {
         ...updated[existingIndex],
         status,
-        supervisor_id: supervisorId
+        supervisor_id: safeSupervisorId
       };
     } else {
       const record: AttendanceRecord = {
-        id: `att-${Date.now()}-${employeeId}`,
-        supervisor_id: supervisorId,
-        employee_id: employeeId,
+        id: crypto.randomUUID ? crypto.randomUUID() : `f${Date.now()}-1111-1111-1111-111111111111`,
+        supervisor_id: safeSupervisorId,
+        employee_id: safeEmployeeId,
         status,
         date: todayStr,
         created_at: new Date().toISOString(),
@@ -302,8 +349,8 @@ export function useFleetStore() {
     if (isSupabaseConfigured && supabase) {
       try {
         await supabase.from('attendance').upsert({
-          supervisor_id: supervisorId,
-          employee_id: employeeId,
+          supervisor_id: safeSupervisorId,
+          employee_id: safeEmployeeId,
           status,
           date: todayStr
         }, { onConflict: 'employee_id,date' });
@@ -314,21 +361,30 @@ export function useFleetStore() {
   };
 
   const addUser = (newUser: Omit<User, 'id'>) => {
-    const userItem: User = { ...newUser, id: `usr-${Date.now()}` };
+    const userItem: User = { 
+      ...newUser, 
+      id: crypto.randomUUID ? crypto.randomUUID() : `11111111-1111-1111-1111-${Date.now().toString().slice(-12)}` 
+    };
     const updated = [...users, userItem];
     setUsers(updated);
     if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
   };
 
   const addVehicle = (newVeh: Omit<Vehicle, 'id'>) => {
-    const vehItem: Vehicle = { ...newVeh, id: `veh-${Date.now()}` };
+    const vehItem: Vehicle = { 
+      ...newVeh, 
+      id: crypto.randomUUID ? crypto.randomUUID() : `a1111111-1111-1111-1111-${Date.now().toString().slice(-12)}` 
+    };
     const updated = [...vehicles, vehItem];
     setVehicles(updated);
     if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(updated));
   };
 
   const addLocation = (newLoc: Omit<LocationItem, 'id'>) => {
-    const locItem: LocationItem = { ...newLoc, id: `loc-${Date.now()}` };
+    const locItem: LocationItem = { 
+      ...newLoc, 
+      id: crypto.randomUUID ? crypto.randomUUID() : `b1111111-1111-1111-1111-${Date.now().toString().slice(-12)}` 
+    };
     const updated = [...locations, locItem];
     setLocations(updated);
     if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(updated));
