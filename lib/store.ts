@@ -12,14 +12,14 @@ import {
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const STORAGE_KEYS = {
-  USERS: 'ssi_users_v3',
-  VEHICLES: 'ssi_vehicles_v3',
-  LOCATIONS: 'ssi_locations_v3',
-  TRIPS: 'ssi_trips_v3',
-  FUEL_LOGS: 'ssi_fuel_logs_v3',
-  EXPENSES: 'ssi_expenses_v3',
-  ATTENDANCE: 'ssi_attendance_v3',
-  ACTIVE_ROLE: 'ssi_active_role_v3'
+  USERS: 'ssi_users_v4',
+  VEHICLES: 'ssi_vehicles_v4',
+  LOCATIONS: 'ssi_locations_v4',
+  TRIPS: 'ssi_trips_v4',
+  FUEL_LOGS: 'ssi_fuel_logs_v4',
+  EXPENSES: 'ssi_expenses_v4',
+  ATTENDANCE: 'ssi_attendance_v4',
+  ACTIVE_ROLE: 'ssi_active_role_v4'
 };
 
 const isValidUUID = (str?: string) => {
@@ -43,46 +43,9 @@ export function useFleetStore() {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(initialAttendance);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    try {
-      const savedRole = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROLE) as UserRole | null;
-      if (savedRole) setActiveRoleState(savedRole);
-
-      const savedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
-      if (savedUsers) setUsers(JSON.parse(savedUsers));
-
-      const savedVehicles = localStorage.getItem(STORAGE_KEYS.VEHICLES);
-      if (savedVehicles) setVehicles(JSON.parse(savedVehicles));
-
-      const savedLocations = localStorage.getItem(STORAGE_KEYS.LOCATIONS);
-      if (savedLocations) setLocations(JSON.parse(savedLocations));
-
-      const savedTrips = localStorage.getItem(STORAGE_KEYS.TRIPS);
-      if (savedTrips) setTrips(JSON.parse(savedTrips));
-
-      const savedFuelLogs = localStorage.getItem(STORAGE_KEYS.FUEL_LOGS);
-      if (savedFuelLogs) setFuelLogs(JSON.parse(savedFuelLogs));
-
-      const savedExpenses = localStorage.getItem(STORAGE_KEYS.EXPENSES);
-      if (savedExpenses) setExpenses(JSON.parse(savedExpenses));
-
-      const savedAttendance = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
-      if (savedAttendance) setAttendance(JSON.parse(savedAttendance));
-
-      if (isSupabaseConfigured && supabase) {
-        fetchFromSupabase();
-      }
-    } catch (e) {
-      console.warn('Storage fallback to default mock data', e);
-    } finally {
-      setIsLoaded(true);
-    }
-  }, []);
-
+  // Fetch Universal Live Data from Supabase
   const fetchFromSupabase = async () => {
-    if (!supabase) return;
+    if (!isSupabaseConfigured || !supabase) return;
     try {
       const [uRes, vRes, lRes, tRes, fRes, eRes, aRes] = await Promise.all([
         supabase.from('users').select('*'),
@@ -94,17 +57,130 @@ export function useFleetStore() {
         supabase.from('attendance').select('*')
       ]);
 
+      const loadedUsers = uRes.data?.length ? uRes.data : users;
+      const loadedVehicles = vRes.data?.length ? vRes.data : vehicles;
+      const loadedLocations = lRes.data?.length ? lRes.data : locations;
+
       if (uRes.data?.length) setUsers(uRes.data);
       if (vRes.data?.length) setVehicles(vRes.data);
       if (lRes.data?.length) setLocations(lRes.data);
-      if (tRes.data?.length) setTrips(tRes.data);
-      if (fRes.data?.length) setFuelLogs(fRes.data);
-      if (eRes.data?.length) setExpenses(eRes.data);
-      if (aRes.data?.length) setAttendance(aRes.data);
+
+      if (tRes.data) {
+        const formattedTrips = tRes.data.map((t: Trip) => {
+          const drv = loadedUsers.find(u => u.id === t.driver_id);
+          const veh = loadedVehicles.find(v => v.id === t.vehicle_id);
+          const src = loadedLocations.find(l => l.id === t.source_id);
+          const dst = loadedLocations.find(l => l.id === t.dest_id);
+
+          return {
+            ...t,
+            driver_name: drv?.name || t.driver_name || 'Driver',
+            vehicle_number: veh?.vehicle_number || t.vehicle_number || 'Vehicle',
+            source_name: src?.name || t.source_name || 'Source Quarry',
+            dest_name: dst?.name || t.dest_name || 'Destination Site'
+          };
+        });
+        setTrips(formattedTrips);
+      }
+
+      if (fRes.data) {
+        const formattedFuel = fRes.data.map((f: FuelLog) => {
+          const drv = loadedUsers.find(u => u.id === f.driver_id);
+          const veh = loadedVehicles.find(v => v.id === f.vehicle_id);
+          return {
+            ...f,
+            driver_name: drv?.name || f.driver_name || 'Driver',
+            vehicle_number: veh?.vehicle_number || f.vehicle_number || 'Vehicle'
+          };
+        });
+        setFuelLogs(formattedFuel);
+      }
+
+      if (eRes.data) {
+        const formattedExpenses = eRes.data.map((e: Expense) => {
+          const sup = loadedUsers.find(u => u.id === e.supervisor_id);
+          return {
+            ...e,
+            supervisor_name: sup?.name || e.supervisor_name || 'Supervisor'
+          };
+        });
+        setExpenses(formattedExpenses);
+      }
+
+      if (aRes.data) {
+        const formattedAttendance = aRes.data.map((a: AttendanceRecord) => {
+          const emp = loadedUsers.find(u => u.id === a.employee_id);
+          return {
+            ...a,
+            employee_name: emp?.name || a.employee_name || 'Employee',
+            employee_role: emp?.role || a.employee_role || 'driver'
+          };
+        });
+        setAttendance(formattedAttendance);
+      }
     } catch (err) {
       console.error('Error fetching live Supabase data', err);
     }
   };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const savedRole = localStorage.getItem(STORAGE_KEYS.ACTIVE_ROLE) as UserRole | null;
+    if (savedRole) setActiveRoleState(savedRole);
+
+    const client = supabase;
+    if (isSupabaseConfigured && client) {
+      // 1. Initial Fetch from Cloud DB
+      fetchFromSupabase().then(() => setIsLoaded(true));
+
+      // 2. Background Auto-Poll every 4 seconds for instant cross-device updates
+      const interval = setInterval(() => {
+        fetchFromSupabase();
+      }, 4000);
+
+      // 3. Supabase Realtime Channel Subscription
+      const channel = client.channel('universal-fleet-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'fuel_logs' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => fetchFromSupabase())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => fetchFromSupabase())
+        .subscribe();
+
+      return () => {
+        clearInterval(interval);
+        client.removeChannel(channel);
+      };
+    } else {
+      // LocalStorage Fallback for offline/demo mode
+      try {
+        const savedUsers = localStorage.getItem(STORAGE_KEYS.USERS);
+        if (savedUsers) setUsers(JSON.parse(savedUsers));
+
+        const savedVehicles = localStorage.getItem(STORAGE_KEYS.VEHICLES);
+        if (savedVehicles) setVehicles(JSON.parse(savedVehicles));
+
+        const savedLocations = localStorage.getItem(STORAGE_KEYS.LOCATIONS);
+        if (savedLocations) setLocations(JSON.parse(savedLocations));
+
+        const savedTrips = localStorage.getItem(STORAGE_KEYS.TRIPS);
+        if (savedTrips) setTrips(JSON.parse(savedTrips));
+
+        const savedFuelLogs = localStorage.getItem(STORAGE_KEYS.FUEL_LOGS);
+        if (savedFuelLogs) setFuelLogs(JSON.parse(savedFuelLogs));
+
+        const savedExpenses = localStorage.getItem(STORAGE_KEYS.EXPENSES);
+        if (savedExpenses) setExpenses(JSON.parse(savedExpenses));
+
+        const savedAttendance = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
+        if (savedAttendance) setAttendance(JSON.parse(savedAttendance));
+      } catch (e) {
+        console.warn('Storage fallback to default mock data', e);
+      } finally {
+        setIsLoaded(true);
+      }
+    }
+  }, []);
 
   const setActiveRole = (role: UserRole) => {
     setActiveRoleState(role);
@@ -113,7 +189,7 @@ export function useFleetStore() {
     }
   };
 
-  // Phase 1: Create Loading Trip
+  // Create Loading Trip
   const addTrip = async (newTrip: Omit<Trip, 'id' | 'created_at' | 'status'>) => {
     const driver = users.find(u => u.id === newTrip.driver_id) || users[0];
     const vehicle = vehicles.find(v => v.id === newTrip.vehicle_id) || vehicles[0];
@@ -140,15 +216,11 @@ export function useFleetStore() {
       dest_name: dest?.name || 'Destination'
     };
 
-    const updated = [tripRecord, ...trips];
-    setTrips(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(updated));
-    }
+    setTrips(prev => [tripRecord, ...prev]);
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase.from('trips').insert([{
+        const { error } = await supabase.from('trips').insert([{
           driver_id: safeDriverId,
           vehicle_id: safeVehicleId,
           source_id: safeSourceId,
@@ -161,13 +233,14 @@ export function useFleetStore() {
           loading_photo_url: newTrip.loading_photo_url,
           loading_gps_lat: newTrip.loading_gps_lat,
           loading_gps_lng: newTrip.loading_gps_lng,
+          loading_gps_address: newTrip.loading_gps_address,
           status: 'in_transit'
-        }]).select();
+        }]);
 
         if (error) {
-          console.error('Supabase trip insert error:', error.message, error.details);
+          console.error('Supabase trip insert error:', error.message);
         } else {
-          console.log('Trip successfully inserted into Supabase DB!', data);
+          setTimeout(fetchFromSupabase, 500);
         }
       } catch (err) {
         console.error('Failed syncing loading trip to Supabase', err);
@@ -176,7 +249,7 @@ export function useFleetStore() {
     return tripRecord;
   };
 
-  // Phase 2: Complete Offload at Destination
+  // Complete Offload
   const completeTripOffload = async (
     tripId: string, 
     offloadData: {
@@ -184,10 +257,11 @@ export function useFleetStore() {
       offloading_photo_url?: string;
       offloading_gps_lat?: number;
       offloading_gps_lng?: number;
+      offloading_gps_address?: string;
     }
   ) => {
     const offloadedTime = new Date().toISOString();
-    const updated = trips.map(t => {
+    setTrips(prev => prev.map(t => {
       if (t.id === tripId) {
         return {
           ...t,
@@ -197,22 +271,17 @@ export function useFleetStore() {
         };
       }
       return t;
-    });
-
-    setTrips(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(updated));
-    }
+    }));
 
     if (isSupabaseConfigured && supabase) {
       try {
-        // If tripId is a valid UUID, update by id, else update latest in_transit trip
         if (isValidUUID(tripId)) {
           await supabase.from('trips').update({
             end_odometer: offloadData.end_odometer,
             offloading_photo_url: offloadData.offloading_photo_url,
             offloading_gps_lat: offloadData.offloading_gps_lat,
             offloading_gps_lng: offloadData.offloading_gps_lng,
+            offloading_gps_address: offloadData.offloading_gps_address,
             status: 'completed',
             offloaded_at: offloadedTime
           }).eq('id', tripId);
@@ -222,10 +291,13 @@ export function useFleetStore() {
             offloading_photo_url: offloadData.offloading_photo_url,
             offloading_gps_lat: offloadData.offloading_gps_lat,
             offloading_gps_lng: offloadData.offloading_gps_lng,
+            offloading_gps_address: offloadData.offloading_gps_address,
             status: 'completed',
             offloaded_at: offloadedTime
           }).eq('status', 'in_transit');
         }
+
+        setTimeout(fetchFromSupabase, 500);
       } catch (err) {
         console.error('Failed syncing trip completion to Supabase', err);
       }
@@ -250,11 +322,7 @@ export function useFleetStore() {
       vehicle_number: vehicle?.vehicle_number || 'TRK-00'
     };
 
-    const updated = [fuelRecord, ...fuelLogs];
-    setFuelLogs(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.FUEL_LOGS, JSON.stringify(updated));
-    }
+    setFuelLogs(prev => [fuelRecord, ...prev]);
 
     if (isSupabaseConfigured && supabase) {
       try {
@@ -266,6 +334,7 @@ export function useFleetStore() {
           amount: newLog.amount,
           receipt_url: newLog.receipt_url
         }]);
+        setTimeout(fetchFromSupabase, 500);
       } catch (err) {
         console.error('Failed syncing fuel log to Supabase', err);
       }
@@ -286,11 +355,7 @@ export function useFleetStore() {
       supervisor_name: supervisor?.name || 'Supervisor'
     };
 
-    const updated = [expenseRecord, ...expenses];
-    setExpenses(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(updated));
-    }
+    setExpenses(prev => [expenseRecord, ...prev]);
 
     if (isSupabaseConfigured && supabase) {
       try {
@@ -302,6 +367,7 @@ export function useFleetStore() {
           bill_url: newExp.bill_url,
           notes: newExp.notes
         }]);
+        setTimeout(fetchFromSupabase, 500);
       } catch (err) {
         console.error('Failed syncing expense to Supabase', err);
       }
@@ -317,18 +383,14 @@ export function useFleetStore() {
     const safeEmployeeId = ensureUUID(employeeId, '11111111-1111-1111-1111-111111111111');
     const safeSupervisorId = ensureUUID(supervisorId, '33333333-3333-3333-3333-333333333333');
 
-    const existingIndex = attendance.findIndex(a => a.employee_id === employeeId && a.date === todayStr);
-    let updated: AttendanceRecord[];
-
-    if (existingIndex >= 0) {
-      updated = [...attendance];
-      updated[existingIndex] = {
-        ...updated[existingIndex],
-        status,
-        supervisor_id: safeSupervisorId
-      };
-    } else {
-      const record: AttendanceRecord = {
+    setAttendance(prev => {
+      const idx = prev.findIndex(a => a.employee_id === employeeId && a.date === todayStr);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], status, supervisor_id: safeSupervisorId };
+        return copy;
+      }
+      return [{
         id: crypto.randomUUID ? crypto.randomUUID() : `f${Date.now()}-1111-1111-1111-111111111111`,
         supervisor_id: safeSupervisorId,
         employee_id: safeEmployeeId,
@@ -337,14 +399,8 @@ export function useFleetStore() {
         created_at: new Date().toISOString(),
         employee_name: employee?.name || 'Employee',
         employee_role: employee?.role || 'driver'
-      };
-      updated = [record, ...attendance];
-    }
-
-    setAttendance(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(updated));
-    }
+      }, ...prev];
+    });
 
     if (isSupabaseConfigured && supabase) {
       try {
@@ -354,6 +410,7 @@ export function useFleetStore() {
           status,
           date: todayStr
         }, { onConflict: 'employee_id,date' });
+        setTimeout(fetchFromSupabase, 500);
       } catch (err) {
         console.error('Failed syncing attendance to Supabase', err);
       }
@@ -365,9 +422,7 @@ export function useFleetStore() {
       ...newUser, 
       id: crypto.randomUUID ? crypto.randomUUID() : `11111111-1111-1111-1111-${Date.now().toString().slice(-12)}` 
     };
-    const updated = [...users, userItem];
-    setUsers(updated);
-    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated));
+    setUsers(prev => [...prev, userItem]);
   };
 
   const addVehicle = (newVeh: Omit<Vehicle, 'id'>) => {
@@ -375,9 +430,7 @@ export function useFleetStore() {
       ...newVeh, 
       id: crypto.randomUUID ? crypto.randomUUID() : `a1111111-1111-1111-1111-${Date.now().toString().slice(-12)}` 
     };
-    const updated = [...vehicles, vehItem];
-    setVehicles(updated);
-    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(updated));
+    setVehicles(prev => [...prev, vehItem]);
   };
 
   const addLocation = (newLoc: Omit<LocationItem, 'id'>) => {
@@ -385,9 +438,7 @@ export function useFleetStore() {
       ...newLoc, 
       id: crypto.randomUUID ? crypto.randomUUID() : `b1111111-1111-1111-1111-${Date.now().toString().slice(-12)}` 
     };
-    const updated = [...locations, locItem];
-    setLocations(updated);
-    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(updated));
+    setLocations(prev => [...prev, locItem]);
   };
 
   const metrics: DashboardMetrics = {
