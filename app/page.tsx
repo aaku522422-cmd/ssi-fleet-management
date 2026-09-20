@@ -237,7 +237,7 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div>
                 <h2 className="text-lg font-black text-slate-900">Admin Dashboard</h2>
-                <p className="text-xs text-slate-500">Fleet Operations & Master Registries</p>
+                <p className="text-xs text-slate-500">Source Quarries & Destination Sites Material Movement</p>
               </div>
 
               <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-xs w-full sm:w-auto">
@@ -247,7 +247,7 @@ export default function Home() {
                     adminTab === 'dashboard' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600'
                   }`}
                 >
-                  Dashboard
+                  Dashboard & Matrix
                 </button>
                 <button
                   onClick={() => setAdminTab('master')}
@@ -275,6 +275,7 @@ export default function Home() {
                 fuelLogs={fuelLogs}
                 expenses={expenses}
                 vehicles={vehicles}
+                locations={locations}
               />
             )}
 

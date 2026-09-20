@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Trip, FuelLog, Expense } from '@/lib/types';
-import { Truck, Fuel, Wallet, Calendar } from 'lucide-react';
+import { Truck, Fuel, Wallet, Calendar, MapPin, Navigation } from 'lucide-react';
 
 interface RecentActivityFeedProps {
   trips: Trip[];
@@ -20,25 +20,45 @@ export const RecentActivityFeed: React.FC<RecentActivityFeedProps> = ({
       <div className="flex justify-between items-center border-b border-slate-100 pb-3">
         <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
           <Calendar className="w-4 h-4 text-blue-600" />
-          <span>Real-Time Audit Stream</span>
+          <span>Real-Time Driver Audit Stream & Geocoded Locations</span>
         </h3>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
         
-        {/* Trips */}
+        {/* Trips with Reverse Geocoded Addresses */}
         <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
           <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
             <Truck className="w-3.5 h-3.5 text-blue-600" /> Trips ({trips.length})
           </h4>
           <div className="space-y-2">
             {trips.slice(0, 5).map((t) => (
-              <div key={t.id} className="p-2 bg-white rounded-lg border border-slate-200">
+              <div key={t.id} className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-1">
                 <div className="flex justify-between font-bold text-slate-900">
                   <span>{t.vehicle_number}</span>
                   <span className="text-blue-600 font-mono">{t.quantity} Tons</span>
                 </div>
-                <div className="text-[11px] text-slate-500">{t.material}</div>
+                <div className="text-[11px] text-slate-600">{t.material}</div>
+                
+                {/* Precise Driver Address & Landmark */}
+                <div className="pt-1 border-t border-slate-100 text-[10px] space-y-0.5">
+                  <div className="flex items-start gap-1 text-slate-800 font-bold">
+                    <MapPin className="w-3 h-3 text-blue-600 shrink-0 mt-0.5" />
+                    <span>Departure: {t.loading_gps_address || t.source_name || 'Quarry Zone'}</span>
+                  </div>
+                  {t.offloading_gps_address && (
+                    <div className="flex items-start gap-1 text-emerald-700 font-bold">
+                      <Navigation className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>Drop: {t.offloading_gps_address}</span>
+                    </div>
+                  )}
+                  {t.loading_gps_lat && (
+                    <div className="text-slate-400 font-mono text-[9px]">
+                      GPS: {t.loading_gps_lat}, {t.loading_gps_lng}
+                    </div>
+                  )}
+                </div>
+
               </div>
             ))}
           </div>

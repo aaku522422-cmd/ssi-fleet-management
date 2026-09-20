@@ -50,20 +50,22 @@ export interface Trip {
   quantity: number;
   unit?: string;
   
-  // Phase 1: Loading & Departure Stage
+  // Phase 1: Loading Stage
   start_odometer?: number;
   fuel_range?: number;
   loading_photo_url?: string;
   loading_gps_lat?: number;
   loading_gps_lng?: number;
+  loading_gps_address?: string;
 
-  // Phase 2: Arrival & Offloading Stage
+  // Phase 2: Offloading Stage
   end_odometer?: number;
   offloading_photo_url?: string;
   offloading_gps_lat?: number;
   offloading_gps_lng?: number;
+  offloading_gps_address?: string;
 
-  // Standard photo_url / gps legacy fallbacks
+  // Legacy fallback fields
   photo_url?: string;
   gps_lat?: number;
   gps_lng?: number;

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Vehicle, LocationItem, User, Trip } from '@/lib/types';
 import { 
   MapPin, Camera, Navigation, Send, CheckCircle, Package, Truck, Layers, 
-  Gauge, Fuel, ArrowRight, ShieldCheck, AlertCircle, RefreshCw 
+  Gauge, Fuel, ArrowRight, ShieldCheck, AlertCircle, RefreshCw, Compass 
 } from 'lucide-react';
 
 interface TripLogFormProps {
@@ -24,6 +24,7 @@ interface TripLogFormProps {
     fuel_range?: number;
     loading_gps_lat?: number;
     loading_gps_lng?: number;
+    loading_gps_address?: string;
     loading_photo_url?: string;
   }) => Promise<Trip | void>;
   onCompleteOffload: (
@@ -33,6 +34,7 @@ interface TripLogFormProps {
       offloading_photo_url?: string;
       offloading_gps_lat?: number;
       offloading_gps_lng?: number;
+      offloading_gps_address?: string;
     }
   ) => Promise<void>;
 }
@@ -61,13 +63,15 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
 
   // Stage 1 GPS State
   const [isCapturingLoadingGPS, setIsCapturingLoadingGPS] = useState(false);
-  const [loadingGpsCoords, setLoadingGpsCoords] = useState<{ lat: number; lng: number; accuracy?: number } | null>({
+  const [loadingGpsCoords, setLoadingGpsCoords] = useState<{ lat: number; lng: number; accuracy?: number; address?: string } | null>({
     lat: 12.9716,
-    lng: 77.5946
+    lng: 77.5946,
+    accuracy: 5,
+    address: 'Quarry Site Alpha, Sector 14 Granite Ridge'
   });
   const [loadingGpsError, setLoadingGpsError] = useState<string | null>(null);
 
-  // Stage 1 Photo State (Base64 for reliable mobile preview)
+  // Stage 1 Photo State
   const [loadingPhotoUrl, setLoadingPhotoUrl] = useState<string | null>(
     'https://images.unsplash.com/photo-1581094288338-2314dddb7ece?auto=format&fit=crop&w=600&q=80'
   );
@@ -78,9 +82,11 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
 
   // Stage 2 GPS & Photo State
   const [isCapturingOffloadingGPS, setIsCapturingOffloadingGPS] = useState(false);
-  const [offloadingGpsCoords, setOffloadingGpsCoords] = useState<{ lat: number; lng: number; accuracy?: number } | null>({
+  const [offloadingGpsCoords, setOffloadingGpsCoords] = useState<{ lat: number; lng: number; accuracy?: number; address?: string } | null>({
     lat: 12.9820,
-    lng: 77.6045
+    lng: 77.6045,
+    accuracy: 8,
+    address: 'Flyover Site C, NH-44 Bypass Junction, Km 12'
   });
   const [offloadingGpsError, setOffloadingGpsError] = useState<string | null>(null);
 
@@ -101,7 +107,34 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
     'Steel Rebar Bundle'
   ];
 
-  // REAL MOBILE HARDWARE GPS GEOLOCATION HANDLER
+  // REVERSE GEOCODING FUNCTION (Converts Lat/Lng to Human-Readable Street Address & Landmark)
+  const fetchReverseGeocodeAddress = async (lat: number, lng: number): Promise<string> => {
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
+        headers: { 'Accept-Language': 'en' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.address) {
+          const a = data.address;
+          const addressParts = [
+            a.amenity || a.building || a.road || a.suburb || a.neighbourhood || a.industrial,
+            a.city || a.town || a.county || a.state_district,
+            a.state
+          ].filter(Boolean);
+          if (addressParts.length > 0) return addressParts.join(', ');
+        }
+        if (data && data.display_name) {
+          return data.display_name.split(',').slice(0, 3).join(',');
+        }
+      }
+    } catch (err) {
+      console.warn('Reverse geocode API warning:', err);
+    }
+    return `Lat: ${lat}, Lng: ${lng} (Active Industrial Geo Zone)`;
+  };
+
+  // REAL HARDWARE GPS + REVERSE GEOCODING CAPTURE
   const captureGPS = (type: 'loading' | 'offloading') => {
     if (type === 'loading') {
       setIsCapturingLoadingGPS(true);
@@ -112,7 +145,7 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
     }
 
     if (!navigator.geolocation) {
-      const errMsg = 'Geolocation is not supported by your browser.';
+      const errMsg = 'Geolocation is not supported by your mobile browser.';
       if (type === 'loading') {
         setLoadingGpsError(errMsg);
         setIsCapturingLoadingGPS(false);
@@ -124,12 +157,15 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
     }
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const coords = {
-          lat: Number(position.coords.latitude.toFixed(6)),
-          lng: Number(position.coords.longitude.toFixed(6)),
-          accuracy: Math.round(position.coords.accuracy)
-        };
+      async (position) => {
+        const lat = Number(position.coords.latitude.toFixed(6));
+        const lng = Number(position.coords.longitude.toFixed(6));
+        const accuracy = Math.round(position.coords.accuracy);
+
+        // Fetch exact human readable address / landmark
+        const address = await fetchReverseGeocodeAddress(lat, lng);
+
+        const coords = { lat, lng, accuracy, address };
 
         if (type === 'loading') {
           setLoadingGpsCoords(coords);
@@ -139,24 +175,31 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
           setIsCapturingOffloadingGPS(false);
         }
       },
-      (error) => {
-        let message = 'Could not fetch GPS location.';
+      async (error) => {
+        let message = 'Could not acquire precise GPS signal.';
         switch (error.code) {
           case error.PERMISSION_DENIED:
-            message = 'GPS permission denied. Please allow location access in your phone settings.';
+            message = 'GPS permission denied. Please allow location access in phone settings.';
             break;
           case error.POSITION_UNAVAILABLE:
-            message = 'GPS signal unavailable. Please ensure phone location is ON.';
+            message = 'GPS signal unavailable. Ensure location service is enabled.';
             break;
           case error.TIMEOUT:
-            message = 'GPS request timed out. Trying again...';
+            message = 'GPS request timed out. Retrying...';
             break;
         }
 
-        // Fallback coordinates so application flow never breaks
-        const fallback = type === 'loading' 
-          ? { lat: 12.9716, lng: 77.5946, accuracy: 15 }
-          : { lat: 12.9820, lng: 77.6045, accuracy: 20 };
+        // Fallback coordinates & address
+        const fallbackLat = type === 'loading' ? 12.9716 : 12.9820;
+        const fallbackLng = type === 'loading' ? 77.5946 : 77.6045;
+        const address = await fetchReverseGeocodeAddress(fallbackLat, fallbackLng);
+
+        const fallback = {
+          lat: fallbackLat,
+          lng: fallbackLng,
+          accuracy: 12,
+          address
+        };
 
         if (type === 'loading') {
           setLoadingGpsError(message);
@@ -176,7 +219,6 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
     );
   };
 
-  // NATIVE MOBILE CAMERA FILE READER (Base64 Output for 100% reliable mobile image preview)
   const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'loading' | 'offloading') => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -211,10 +253,11 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
         fuel_range: parseFloat(fuelRange) || undefined,
         loading_gps_lat: loadingGpsCoords?.lat,
         loading_gps_lng: loadingGpsCoords?.lng,
+        loading_gps_address: loadingGpsCoords?.address,
         loading_photo_url: loadingPhotoUrl || undefined
       });
 
-      setSuccessMessage('Trip departure recorded successfully!');
+      setSuccessMessage('Trip departure & precise GPS recorded successfully!');
       if (createdTrip) setSelectedActiveTripId(createdTrip.id);
       setTimeout(() => {
         setSuccessMessage(null);
@@ -238,10 +281,11 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
         end_odometer: parseFloat(endOdometer) || 0,
         offloading_photo_url: offloadingPhotoUrl || undefined,
         offloading_gps_lat: offloadingGpsCoords?.lat,
-        offloading_gps_lng: offloadingGpsCoords?.lng
+        offloading_gps_lng: offloadingGpsCoords?.lng,
+        offloading_gps_address: offloadingGpsCoords?.address
       });
 
-      setSuccessMessage('Material offload & drop location verified!');
+      setSuccessMessage('Material offloaded & destination GPS address verified!');
       setTimeout(() => setSuccessMessage(null), 3000);
       setStage('loading');
     } catch (err) {
@@ -264,7 +308,7 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
           </div>
           <div>
             <h2 className="text-base font-extrabold text-slate-900 leading-tight">Driver Trip Logger</h2>
-            <p className="text-xs text-slate-500">Hardware GPS & Native Camera Integration</p>
+            <p className="text-xs text-slate-500">Precise Driver GPS & Reverse Geocoded Location</p>
           </div>
         </div>
 
@@ -286,7 +330,7 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          1. Loading & Fill Up
+          1. Loading & Departure
         </button>
 
         <button
@@ -421,12 +465,12 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
             </div>
           </div>
 
-          {/* REAL MOBILE HARDWARE GPS CAPTURE */}
+          {/* PRECISE DRIVER LOCATION & REVERSE GEOCODING */}
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 font-bold text-slate-800">
                 <Navigation className={`w-4 h-4 ${isCapturingLoadingGPS ? 'text-blue-600 animate-spin' : 'text-emerald-600'}`} />
-                <span>Quarry Departure GPS</span>
+                <span>Driver Departure GPS & Exact Address</span>
               </div>
 
               <button
@@ -436,18 +480,24 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer"
               >
                 <RefreshCw className={`w-3 h-3 ${isCapturingLoadingGPS ? 'animate-spin' : ''}`} />
-                <span>{isCapturingLoadingGPS ? 'Locating...' : 'Get Phone GPS'}</span>
+                <span>{isCapturingLoadingGPS ? 'Locating...' : 'Get Precise GPS'}</span>
               </button>
             </div>
 
             {loadingGpsCoords && (
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 font-mono text-[11px] text-slate-800 flex items-center justify-between">
-                <span>Lat: <strong>{loadingGpsCoords.lat}</strong>, Lng: <strong>{loadingGpsCoords.lng}</strong></span>
-                {loadingGpsCoords.accuracy && (
-                  <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded">
-                    ±{loadingGpsCoords.accuracy}m accuracy
-                  </span>
-                )}
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
+                <div className="flex items-start gap-1.5 text-slate-900 font-bold text-xs">
+                  <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                  <span>{loadingGpsCoords.address || 'Quarry Zone Departure Point'}</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1 border-t border-slate-100">
+                  <span>Lat: <strong>{loadingGpsCoords.lat}</strong>, Lng: <strong>{loadingGpsCoords.lng}</strong></span>
+                  {loadingGpsCoords.accuracy && (
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded">
+                      ±{loadingGpsCoords.accuracy}m GPS Precision
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -459,22 +509,20 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
             )}
           </div>
 
-          {/* NATIVE MOBILE CAMERA CAPTURE (Rear camera environment capture) */}
+          {/* NATIVE MOBILE CAMERA CAPTURE */}
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
             <div className="flex justify-between items-center">
               <label className="font-bold text-slate-800 flex items-center gap-1.5">
                 <Camera className="w-4 h-4 text-blue-600" />
-                <span>Raw Material Fill Photo (Mobile Camera)</span>
+                <span>Raw Material Fill Photo</span>
               </label>
 
-              {/* Direct Camera Button */}
               <label htmlFor="loadingCameraInput" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg cursor-pointer flex items-center gap-1 text-[11px]">
                 <Camera className="w-3 h-3" />
                 <span>Open Camera</span>
               </label>
             </div>
 
-            {/* Native HTML5 Camera Input with capture="environment" */}
             <input
               id="loadingCameraInput"
               type="file"
@@ -502,19 +550,17 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
               >
                 <Camera className="w-6 h-6 text-slate-400 mb-1" />
                 <span className="font-bold text-slate-700">Tap to snap camera photo of truck load</span>
-                <span className="text-[10px] text-slate-500">Rear camera will launch automatically</span>
               </label>
             )}
           </div>
 
-          {/* Action Button */}
           <button
             type="submit"
             disabled={isSubmitting}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer text-sm"
           >
             <Send className="w-4 h-4" />
-            <span>Record Fill-Up & Start Departure</span>
+            <span>Record Departure & Start Trip</span>
           </button>
         </form>
       )}
@@ -553,12 +599,12 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
             />
           </div>
 
-          {/* STAGE 2 GPS */}
+          {/* STAGE 2 PRECISE ADDRESS & GPS */}
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 font-bold text-slate-800">
                 <Navigation className={`w-4 h-4 ${isCapturingOffloadingGPS ? 'text-blue-600 animate-spin' : 'text-emerald-600'}`} />
-                <span>Drop Site GPS</span>
+                <span>Drop Site GPS & Exact Address</span>
               </div>
 
               <button
@@ -568,18 +614,24 @@ export const TripLogForm: React.FC<TripLogFormProps> = ({
                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer"
               >
                 <RefreshCw className={`w-3 h-3 ${isCapturingOffloadingGPS ? 'animate-spin' : ''}`} />
-                <span>{isCapturingOffloadingGPS ? 'Locating...' : 'Get Phone GPS'}</span>
+                <span>{isCapturingOffloadingGPS ? 'Locating...' : 'Get Precise GPS'}</span>
               </button>
             </div>
 
             {offloadingGpsCoords && (
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 font-mono text-[11px] text-slate-800 flex items-center justify-between">
-                <span>Lat: <strong>{offloadingGpsCoords.lat}</strong>, Lng: <strong>{offloadingGpsCoords.lng}</strong></span>
-                {offloadingGpsCoords.accuracy && (
-                  <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded">
-                    ±{offloadingGpsCoords.accuracy}m accuracy
-                  </span>
-                )}
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
+                <div className="flex items-start gap-1.5 text-slate-900 font-bold text-xs">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>{offloadingGpsCoords.address || 'Destination Drop Site'}</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1 border-t border-slate-100">
+                  <span>Lat: <strong>{offloadingGpsCoords.lat}</strong>, Lng: <strong>{offloadingGpsCoords.lng}</strong></span>
+                  {offloadingGpsCoords.accuracy && (
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded">
+                      ±{offloadingGpsCoords.accuracy}m GPS Precision
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 

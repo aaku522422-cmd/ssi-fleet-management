@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { DashboardMetrics as MetricsType, Trip, FuelLog, Expense, Vehicle } from '@/lib/types';
-import { Truck, Layers, Fuel, Wallet, Users, Calendar, ArrowUpRight } from 'lucide-react';
+import { DashboardMetrics as MetricsType, Trip, FuelLog, Expense, Vehicle, LocationItem } from '@/lib/types';
+import { MaterialMatrix } from './MaterialMatrix';
+import { Truck, Layers, Fuel, Wallet, Users, Calendar } from 'lucide-react';
 
 interface DashboardMetricsProps {
   metrics: MetricsType;
@@ -10,6 +11,7 @@ interface DashboardMetricsProps {
   fuelLogs: FuelLog[];
   expenses: Expense[];
   vehicles: Vehicle[];
+  locations: LocationItem[];
 }
 
 export const DashboardMetrics: React.FC<DashboardMetricsProps> = ({
@@ -17,7 +19,8 @@ export const DashboardMetrics: React.FC<DashboardMetricsProps> = ({
   trips,
   fuelLogs,
   expenses,
-  vehicles
+  vehicles,
+  locations
 }) => {
   return (
     <div className="space-y-4">
@@ -67,30 +70,8 @@ export const DashboardMetrics: React.FC<DashboardMetricsProps> = ({
 
       </div>
 
-      {/* Analytics Breakdown */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-3">
-        <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-          <h3 className="text-sm font-extrabold text-slate-900">Today's Material Dispatched</h3>
-          <span className="text-xs font-bold text-blue-600">{metrics.totalQuantityMovedToday.toFixed(1)} Tons Total</span>
-        </div>
-
-        <div className="space-y-3 pt-1">
-          {[
-            { name: 'Aggregates 20mm', tons: 15.5, pct: 52 },
-            { name: 'Crushed M-Sand', tons: 14.0, pct: 48 },
-          ].map((m) => (
-            <div key={m.name} className="space-y-1 text-xs">
-              <div className="flex justify-between font-bold text-slate-800">
-                <span>{m.name}</span>
-                <span className="font-mono text-blue-600">{m.tons} Tons ({m.pct}%)</span>
-              </div>
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-600 rounded-full" style={{ width: `${m.pct}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* NEW: SOURCE TO DESTINATION MATERIAL MOVEMENT MATRIX */}
+      <MaterialMatrix trips={trips} locations={locations} />
 
     </div>
   );
