@@ -34,6 +34,18 @@ export const FuelLogForm: React.FC<FuelLogFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  const handleReceiptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Url = event.target?.result as string;
+      setReceiptUrl(base64Url);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!vehicleId || !odometer || !litres || !amount) return;
@@ -59,7 +71,7 @@ export const FuelLogForm: React.FC<FuelLogFormProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm space-y-4">
+    <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-sm space-y-4">
       <div className="flex items-center justify-between border-b border-slate-100 pb-3">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
@@ -145,13 +157,33 @@ export const FuelLogForm: React.FC<FuelLogFormProps> = ({
           </div>
         </div>
 
-        {/* Receipt Photo */}
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-          <span className="font-bold text-slate-800 block">Fuel Receipt Image</span>
+        {/* NATIVE MOBILE CAMERA FOR RECEIPT */}
+        <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+          <div className="flex justify-between items-center">
+            <span className="font-bold text-slate-800 flex items-center gap-1.5">
+              <Camera className="w-4 h-4 text-blue-600" />
+              <span>Fuel Pump Receipt Image</span>
+            </span>
+
+            <label htmlFor="fuelCameraInput" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg cursor-pointer flex items-center gap-1 text-[11px]">
+              <Camera className="w-3 h-3" />
+              <span>Open Camera</span>
+            </label>
+          </div>
+
+          <input
+            id="fuelCameraInput"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleReceiptFileChange}
+            className="hidden"
+          />
+
           {receiptUrl && (
-            <div className="rounded-lg overflow-hidden h-28 border border-slate-200">
+            <div className="relative rounded-xl overflow-hidden h-32 border border-slate-200">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={receiptUrl} alt="Fuel receipt slip" className="w-full object-cover h-28" />
+              <img src={receiptUrl} alt="Fuel receipt slip" className="w-full object-cover h-32" />
             </div>
           )}
         </div>
@@ -159,7 +191,7 @@ export const FuelLogForm: React.FC<FuelLogFormProps> = ({
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer text-sm"
         >
           <Send className="w-4 h-4" />
           <span>Submit Fuel Log</span>
